@@ -9,6 +9,8 @@
 #include "core/assimpLoader.h"
 #include "core/texture.h"
 #include <vector>
+#include <chrono>
+#include <random>
 
 //#define MAC_CLION
 #define VSTUDIO
@@ -74,7 +76,7 @@ GLuint generateShader(const std::string &shaderPath, GLuint shaderType) {
 
 struct Body2D {
     glm::vec2 position;
-    glm::vec2 size;
+    glm::vec2 halfSize;
 };
 
 struct CollisionStats {
@@ -82,16 +84,17 @@ struct CollisionStats {
     int collisionPairs = 0;
 };
 
-bool Overlaps(const Body2D& a, const Body2D& b) {
-    float aMinX = a.position.x - a.size.x;
-    float aMaxX = a.position.x + a.size.x;
-    float aMinY = a.position.y - a.size.y;
-    float aMaxY = a.position.y + a.size.y;
 
-    float bMinX = b.position.x - b.size.x;
-    float bMaxX = b.position.x + b.size.x;
-    float bMinY = b.position.y - b.size.y;
-    float bMaxY = b.position.y + b.size.y;
+bool Overlaps(const Body2D& a, const Body2D& b) {
+    float aMinX = a.position.x - a.halfSize.x;
+    float aMaxX = a.position.x + a.halfSize.x;
+    float aMinY = a.position.y - a.halfSize.y;
+    float aMaxY = a.position.y + a.halfSize.y;
+
+    float bMinX = b.position.x - b.halfSize.x;
+    float bMaxX = b.position.x + b.halfSize.x;
+    float bMinY = b.position.y - b.halfSize.y;
+    float bMaxY = b.position.y + b.halfSize.y;
 
     return aMinX <= bMaxX && aMaxX >= bMinX &&
         aMinY <= bMaxY && aMaxY >= bMinY;
@@ -101,7 +104,7 @@ CollisionStats RunBruteForce(const std::vector<Body2D>& bodies) {
 
     CollisionStats stats;
 
-    for (int i = 0; i < bodies.size(); ++i) {
+    for (int i = 0; i < (int)bodies.size(); ++i) {
         for (int j = i + 1; j < bodies.size(); ++j) {
             stats.candidatePairs++;
             if (Overlaps(bodies[i], bodies[j])) {
@@ -113,6 +116,43 @@ CollisionStats RunBruteForce(const std::vector<Body2D>& bodies) {
     return stats;
 }
 
+std::vector<Body2D> GenerateBodiesGrid(int count) {
+
+    std::vector<Body2D> bodies;
+    bodies.reserve(count);
+
+    for (int i = 0; i < count; i++) {
+        float x = -5.0f + (i % 20) * 0.5f;
+        float y = -5.0f + (i / 20) * 0.5f;
+
+        Body2D body;
+        body.position = glm::vec2(x, y);
+        body.halfSize = glm::vec2(0.2f, 0.2f);
+
+        bodies.push_back(body);
+    }
+
+    return bodies;
+}
+
+std::vector<Body2D> GenerateBodiesRandom(int count, unsigned int seed) {
+    std::vector<Body2D> bodies;
+    bodies.reserve(count);
+
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> xDist(-5.0f, 5.0f);
+    std::uniform_real_distribution<float> yDist(-5.0f, 5.0f);
+
+    for (int i = 0; i < count; i++)
+    {
+        Body2D body;
+        body.position = glm::vec2(xDist(rng), yDist(rng));
+        body.halfSize = glm::vec2(0.2f, 0.2f);
+        bodies.push_back(body);
+    }
+
+    return bodies;
+}
 
 
 int main() {
@@ -217,11 +257,13 @@ int main() {
     float deltaTime = 0.0f;
     float rotationStrength = 100.0f;
 
-    std::vector<Body2D> bodies;
+    //-------------------------------------
 
-    bodies.push_back({ glm::vec2(-1.0f, 0.0f), glm::vec2(0.5f, 0.5f) });
-    bodies.push_back({ glm::vec2(0.0f, 0.0f), glm::vec2(0.5f, 0.5f) });
-    bodies.push_back({ glm::vec2(1.0f, 0.0f), glm::vec2(0.5f, 0.5f) });
+    int distributionMode = 0; // 0 = grid , 1 = random
+    unsigned int seed = 44;
+    int bodyCount = 100;
+
+    std::vector<Body2D> bodies = GenerateBodiesGrid(bodyCount);
 
     while (!glfwWindowShouldClose(window)) {
 
@@ -232,27 +274,44 @@ int main() {
 
         ImGui::NewFrame();
 
+        auto start = std::chrono::high_resolution_clock::now();
         CollisionStats stats = RunBruteForce(bodies);
+        auto end = std::chrono::high_resolution_clock::now();
+        double bruteForceMs = std::chrono::duration<double, std::milli > (end - start).count();
 
         ImGui::Begin("Raw Engine v2");
         ImGui::Text("Collision Test");
-        ImGui::Text("Body count: %d", bodies.size());
+        const char* distributionItems[] = { "Grid", "Random" };
+        ImGui::Combo("Distribution", &distributionMode, distributionItems, 2);
+        ImGui::InputInt("Random Seed", (int*)&seed);
+        ImGui::SliderInt("Body Count", &bodyCount, 1, 5000);
+
+        if (ImGui::Button("Regenerate Bodies")) {
+            if (distributionMode == 0) {
+                bodies = GenerateBodiesGrid(bodyCount);
+            }
+            else if (distributionMode == 1) {
+                bodies = GenerateBodiesRandom(bodyCount, seed);
+            }
+        }
+
         ImGui::Text("Candidate pairs: %d", stats.candidatePairs);
         ImGui::Text("Collision pairs: %d", stats.collisionPairs);
         ImGui::Separator();
+        ImGui::Text("Brute force time: %.4f ms", bruteForceMs);
+        ImGui::Separator();
 
-        for (int i = 0; i < bodies.size(); ++i) {
-            ImGui::Text("Body %d: pos(%.2f, %.2f) size(%.2f, %.2f)",
+        int previewCount = std::min((int)bodies.size(), 5);
+        for (int i = 0; i < previewCount; ++i) {
+            ImGui::Text("Body %d: pos(%.2f, %.2f) halfSize(%.2f, %.2f)",
                 i,
                 bodies[i].position.x,
                 bodies[i].position.y,
-                bodies[i].size.x,
-                bodies[i].size.y);
+                bodies[i].halfSize.x,
+                bodies[i].halfSize.y);
         }
 
         ImGui::End();
-
-
 
         processInput(window);
 
