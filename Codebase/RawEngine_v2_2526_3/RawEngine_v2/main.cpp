@@ -5,6 +5,8 @@
 #include <vector>
 #include <chrono>
 #include <random>
+#include <fstream>
+#include <string>
 
 //#define MAC_CLION
 #define VSTUDIO
@@ -40,6 +42,8 @@ void framebufferSizeCallback(GLFWwindow* window,
 
 //My code -------------------------------------------------------------------------------------------
 
+const std::string csvOutputPath = "C:/Projects/AdvRenderingTemplate/Raw results/benchmark_results.csv";
+
 struct Body2D {
 	glm::vec2 position;
 	glm::vec2 halfSize;
@@ -70,9 +74,9 @@ CollisionStats RunBruteForce(const std::vector<Body2D>& bodies) {
 
 	CollisionStats stats;
 
-	for (int i = 0; i < (int)bodies.size(); ++i) 
+	for (int i = 0; i < (int)bodies.size(); ++i)
 	{
-		for (int j = i + 1; j < bodies.size(); ++j) 
+		for (int j = i + 1; j < bodies.size(); ++j)
 		{
 			stats.candidatePairs++;
 			if (Overlaps(bodies[i], bodies[j])) {
@@ -89,7 +93,7 @@ std::vector<Body2D> GenerateBodiesGrid(int count) {
 	std::vector<Body2D> bodies;
 	bodies.reserve(count);
 
-	for (int i = 0; i < count; i++) 
+	for (int i = 0; i < count; i++)
 	{
 		float x = -5.0f + (i % 20) * 0.5f;
 		float y = -5.0f + (i / 20) * 0.5f;
@@ -135,12 +139,12 @@ std::vector<Body2D> GenerateBodiesClustered(int count, unsigned int seed) {
 	std::vector<glm::vec2> centers;
 	centers.reserve(clusterCount);
 
-	for (int i = 0; i < clusterCount; ++i) 
+	for (int i = 0; i < clusterCount; ++i)
 	{
 		centers.push_back(glm::vec2(centerDist(rng), centerDist(rng)));
 	}
 
-	for (int i = 0; i < count; ++i) 
+	for (int i = 0; i < count; ++i)
 	{
 		int clusterIndex = i % clusterCount;
 
@@ -153,7 +157,43 @@ std::vector<Body2D> GenerateBodiesClustered(int count, unsigned int seed) {
 	return bodies;
 }
 
+const char* GetDistributionName(int distributionMode) {
 
+	switch (distributionMode) {
+	case 0:
+		return "Grid";
+	case 1:
+		return "Random";
+	case 2:
+		return "Clustered";
+	default:
+		return "Unknown Distribution";
+	}
+}
+
+bool FileExists(const std::string& path) {
+	std::ifstream file(path);
+	return file.good();
+}
+
+void AddBenchmarkRow(const std::string& filePath, const char* method, const char* distribution, unsigned int seed, int bodyCount, int candidatePairs, int collisionPairs, double bruteForceMs) {
+	const bool isFileExisting = FileExists(filePath);
+
+	std::ofstream file(filePath, std::ios::app);
+
+	if (!file.is_open()) {
+		printf("Failed to open CSV file: %s\n", filePath.c_str());
+		return;
+	}
+
+	if (!isFileExisting) {
+		file << "method,distribution,seed,body_count,candidate_pairs,collision_pairs,bruteforce_ms\n";
+	}
+
+	file << method << "," << distribution << "," << seed << "," << bodyCount << "," << candidatePairs << "," << collisionPairs << "," << bruteForceMs << "\n";
+}
+
+// -----------------------------------------------------------------------------------------------------------------------------
 int main() {
 	glfwInit();
 	glfwWindowHint(GLFW_SAMPLES, 4);
@@ -224,8 +264,11 @@ int main() {
 		double bruteForceMs = std::chrono::duration<double, std::milli >(end - start).count();
 
 		ImGui::Begin("Raw Engine v2");
+		if (ImGui::Button("Export Current Result to CSV")) {
+			AddBenchmarkRow(csvOutputPath, "BruteForce", GetDistributionName(distributionMode), seed, (int)bodies.size(), stats.candidatePairs, stats.collisionPairs, bruteForceMs);
+		}
 		ImGui::Text("Collision Test");
-		const char* distributionItems[] = { "Grid", "Random", "Clustered"};
+		const char* distributionItems[] = { "Grid", "Random", "Clustered" };
 		ImGui::Combo("Distribution", &distributionMode, distributionItems, 3);
 		ImGui::InputInt("Random Seed", (int*)&seed);
 		ImGui::SliderInt("Body Count", &bodyCount, 1, 5000);

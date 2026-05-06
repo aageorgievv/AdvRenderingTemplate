@@ -1,0 +1,4 @@
+method,distribution,seed,body_count,candidate_pairs,collision_pairs,bruteforce_ms
+BruteForce,Grid,44,100,4950,0,0.0759
+BruteForce,Random,44,100,4950,0,0.076
+BruteForce,Clustered,44,100,4950,0,0.081
